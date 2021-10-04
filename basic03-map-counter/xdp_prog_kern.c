@@ -9,7 +9,7 @@
  * - The idea is to keep stats per (enum) xdp_action
  */
 struct bpf_map_def SEC("maps") xdp_stats_map = {
-	.type        = BPF_MAP_TYPE_ARRAY,
+	.type        = BPF_MAP_TYPE_PERCPU_ARRAY,
 	.key_size    = sizeof(__u32),
 	.value_size  = sizeof(struct datarec),
 	.max_entries = XDP_ACTION_MAX,
@@ -22,16 +22,16 @@ struct bpf_map_def SEC("maps") xdp_stats_map = {
 #define lock_xadd(ptr, val)	((void) __sync_fetch_and_add(ptr, val))
 #endif
 
-SEC("xdp_stats1")
-int  xdp_stats1_func(struct xdp_md *ctx)
+static __always_inline
+__u32  xdp_stats_record_action(struct xdp_md *ctx, __u32 action)
 {
-	// void *data_end = (void *)(long)ctx->data_end;
-	// void *data     = (void *)(long)ctx->data;
-	struct datarec *rec;
-	__u32 key = XDP_PASS; /* XDP_PASS = 2 */
+        if (action >= XDP_ACTION_MAX)
+                return XDP_ABORTED;
+
+        struct datarec *rec;
 
 	/* Lookup in kernel BPF-side return pointer to actual data record */
-	rec = bpf_map_lookup_elem(&xdp_stats_map, &key);
+	rec = bpf_map_lookup_elem(&xdp_stats_map, &action);
 	/* BPF kernel-side verifier will reject program if the NULL pointer
 	 * check isn't performed here. Even-though this is a static array where
 	 * we know key lookup XDP_PASS always will succeed.
@@ -49,8 +49,33 @@ int  xdp_stats1_func(struct xdp_md *ctx)
          * Assignment#3: Avoid the atomic operation
          * - Hint there is a map type named BPF_MAP_TYPE_PERCPU_ARRAY
          */
+        void *data = (void *)(long) ctx->data;
+        void *data_end = (void *)(long) ctx->data_end;
+        __u64 bytes = data_end - data;
+        lock_xadd(&rec->rx_bytes, bytes);
 
 	return XDP_PASS;
+}
+
+SEC("xdp_pass")
+int xdp_pass_func(struct xdp_md *ctx)
+{
+        __u32 action = XDP_PASS;
+        return xdp_stats_record_action(ctx, action);
+}
+
+SEC("xdp_drop")
+int xdp_drop_func(struct xdp_md *ctx)
+{
+        __u32 action = XDP_DROP;
+        return xdp_stats_record_action(ctx, action);
+}
+
+SEC("xdp_abort")
+int xdp_abort_func(struct xdp_md *ctx)
+{
+        __u32 action = XDP_ABORTED;
+        return xdp_stats_record_action(ctx, action);
 }
 
 char _license[] SEC("license") = "GPL";
