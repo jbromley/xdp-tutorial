@@ -211,8 +211,8 @@ out:
 	return xdp_stats_record_action(ctx, action);
 }
 
-#define AF_INET 2
-#define AF_INET6 10
+/* #define AF_INET 2 */
+/* #define AF_INET6 10 */
 #define IPV6_FLOWINFO_MASK bpf_htonl(0x0FFFFFFF)
 
 /* from include/net/ip.h */
